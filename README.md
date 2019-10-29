@@ -1,4 +1,4 @@
-"# psprofile" 
+# psprofile
 These are mine powershell profile scripts. Use at own will ...
 
 ## install
