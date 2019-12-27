@@ -181,13 +181,47 @@ function StopWatch
 
 function LoadEXO
 {
-	$CreateEXOPSSession = "C:\Users\martinr\AppData\Local\Apps\2.0\TWGVB7P4.1EJ\J3ZCK219.TVM\micr..tion_a8eee8aa09b0c4a7_0010.0000_48ffb9840f84f528"
+	$CreateEXOPSSession = "C:\Users\martinr\AppData\Local\Apps\2.0\6BV44X0Q.DAH\A63B7BK7.HA6\micr..tion_5329ec537c0b4b5c_0010.0000_9fc624cd0073956e"
     if (-not (Test-Path "$CreateEXOPSSession\CreateExoPSSession.ps1" -PathType Leaf))
     {
         $CreateEXOPSSession = (Get-ChildItem -Path $env:userprofile -Filter CreateExoPSSession.ps1 -Recurse -ErrorAction SilentlyContinue -Force | Select -Last 1).DirectoryName
     }
 	. "$CreateEXOPSSession\CreateExoPSSession.ps1"
     Connect-EXOPSSession
+}
+
+function LoadSCC
+{
+	$CreateEXOPSSession = "C:\Users\martinr\AppData\Local\Apps\2.0\6BV44X0Q.DAH\A63B7BK7.HA6\micr..tion_5329ec537c0b4b5c_0010.0000_9fc624cd0073956e"
+    if (-not (Test-Path "$CreateEXOPSSession\CreateExoPSSession.ps1" -PathType Leaf))
+    {
+        $CreateEXOPSSession = (Get-ChildItem -Path $env:userprofile -Filter CreateExoPSSession.ps1 -Recurse -ErrorAction SilentlyContinue -Force | Select -Last 1).DirectoryName
+    }
+	. "$CreateEXOPSSession\CreateExoPSSession.ps1"
+    Connect-IPPSSession
+}
+
+function LoadB64Cert
+{
+    param(
+    ## Text of an XML document.
+    [Parameter(ValueFromPipeline = $true)]
+    [string]$b64EncodedCert
+    )
+    $b64Formated=$b64EncodedCert;
+    $b64Formated=$b64Formated.Replace("-----BEGIN CERTIFICATE-----","");
+    $b64Formated=$b64Formated.Replace("-----END CERTIFICATE-----","");
+    $b64Formated=$b64Formated.Replace(" ","");
+    try
+    {
+        [byte[]]$derArray=[System.Convert]::FromBase64String($b64Formated)
+        $cert=new-object System.Security.Cryptography.X509Certificates.X509Certificate2(,$derArray)
+        $cert
+    }catch
+    {
+        throw "Error decoding certificate: $($_.Exception.Message)"
+    }
+
 }
 
 
