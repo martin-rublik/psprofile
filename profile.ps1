@@ -22,7 +22,7 @@ function checkLastCommand
 			Write-Warning "Tenant change! Previous tenant was: $previousTenant, it is possible that you are connected to multiple tenants now!"
 		}
     }
-    if ($lastCommand.ToLower().StartsWith("connect-aadrmservice"))
+    if ($lastCommand.ToLower().StartsWith("connect-aadrmservice")-or($lastCommand.ToLower().StartsWith("connect-aipservice")))
     {
         $previousTenant=$global:CLOUDTENANT
 		$global:CLOUDTENANT = (Get-AadrmKeys |?{$_.Status -eq "Active"}).FriendlyName
@@ -72,7 +72,7 @@ function Prompt
     Write-Host ("]") -foregroundcolor DarkGray -NoNewline
     if ($global:CLOUDTENANT)
     {
-        $host.ui.RawUI.WindowTitle = "PS @MSOL:$($global:CLOUDTENANT.Name)"
+        $host.ui.RawUI.WindowTitle = "PS @MSOL:$($global:CLOUDTENANT)"
         Write-Host "[@$($global:CLOUDTENANT)]" -foregroundcolor Cyan -NoNewline
     }
     
@@ -112,6 +112,59 @@ function Format-Xml
         $doc.WriteContentTo($writer)
         $sw.ToString()
     }
+}
+
+function Format-JWT
+{
+    <#
+   .SYNOPSIS
+    Format the incoming object as the text of an XML document.
+   #>
+    param(
+    ## Text of an XML document.
+    [Parameter(ValueFromPipeline = $true)][string[]]$Text,
+    [Parameter()][switch]$AsJson
+    )
+    $parts=$Text.Split(".")
+    if ($parts.Count -ne 3)
+    {
+        throw "Inccorect JWT, expacting three b64 strings seperated by '.'"
+    }
+
+    # pad parts
+    for($i=0;$i -lt 2;$i++)
+    {
+        $len=$parts[$i].Length
+        if ($len % 4 -eq 2) {$parts[$i]=$parts[$i]+"=="}
+        if ($len % 4 -eq 3) {$parts[$i]=$parts[$i]+"="}
+    }
+
+    $result= New-Object psobject
+    try
+    {
+        $toDecode=$parts[0]
+        $header=$toDecode | Base64-To-String | ConvertFrom-Json 
+        $result | Add-Member -MemberType NoteProperty Header -Value $header -Force
+    }catch
+    {
+        throw "Error decoding JWT header: $($_.exception.message)"
+    }
+    try
+    {
+        $toDecode=$parts[1]
+        $toDecodeLenMod=$toDecode.Length % 4
+        $payload=$toDecode | Base64-To-String | ConvertFrom-Json 
+        $result | Add-Member -MemberType NoteProperty Payload -Value $payload -Force
+    }catch
+    {
+        throw "Error decoding JWT payload: $($_.exception.message)"
+    }
+
+    if ($AsJson.IsPresent)
+    {
+        return $result | ConvertTo-Json
+    }
+    $result
 }
 
 function Base64-To-String
@@ -154,6 +207,83 @@ function ByteArray-To-HexString
     ([System.BitConverter]::ToString($byteArray)).Replace("-"," ").ToLower()
 }
 
+function HexString-To-ByteArray
+{
+    param(
+    ## Text of an XML document.
+    [Parameter(ValueFromPipeline = $true)]
+    [string]$hexString
+    )
+    try
+    {
+        $bytes=$hexString -split "\s+";
+        [byte[]] $returnValue=@();
+        foreach($byte in $bytes)
+        {
+            $returnValue+=[byte]"0x$byte"
+        }
+        $returnValue
+    }catch
+    {
+        throw $_.exception
+    }
+}
+
+function HexString-To-Base64
+{
+    param(
+    ## Text of an XML document.
+    [Parameter(ValueFromPipeline = $true)]
+    [string]$hexString
+    )
+    try
+    {
+        $byteArray=HexString-To-ByteArray -hexString $hexString
+        return [System.Convert]::ToBase64String($byteArray)
+    }catch
+    {
+        throw $_.exception
+    }
+}
+
+function HexString-To-Guid
+{
+    param(
+    ## Text of an XML document.
+    [Parameter(ValueFromPipeline = $true)]
+    [string]$hexString
+    )
+    try
+    {
+        $byteArray=HexString-To-ByteArray -hexString $hexString
+        return New-Object guid(,([byte[]]$byteArray))
+    }catch
+    {
+        throw $_.exception
+    }
+}
+
+function SidString-To-ByteArray
+{
+    param(
+    ## Text of an XML document.
+    [Parameter(ValueFromPipeline = $true)]
+    [string]$sidString
+    )
+    try
+    {
+		$sid=New-Object 'Security.Principal.SecurityIdentifier' $sidString
+		$x=[System.Byte[]]::CreateInstance([System.Byte],$sid.BinaryLength)
+		$sid.GetBinaryForm($x,0)
+		$x
+	}catch
+    {
+        throw $_.exception
+    }
+}
+
+
+
 function Get-SHA1
 {
     param(
@@ -181,7 +311,7 @@ function StopWatch
 
 function LoadEXO
 {
-	$CreateEXOPSSession = "C:\Users\martinr\AppData\Local\Apps\2.0\6BV44X0Q.DAH\A63B7BK7.HA6\micr..tion_5329ec537c0b4b5c_0010.0000_9fc624cd0073956e"
+	$CreateEXOPSSession = "C:\Users\martinr\AppData\Local\Apps\2.0\6BV44X0Q.DAH\A63B7BK7.HA6\micr..tion_1f16bd4ec4c2bb19_0010.0000_673f37c317fb5976"
     if (-not (Test-Path "$CreateEXOPSSession\CreateExoPSSession.ps1" -PathType Leaf))
     {
         $CreateEXOPSSession = (Get-ChildItem -Path $env:userprofile -Filter CreateExoPSSession.ps1 -Recurse -ErrorAction SilentlyContinue -Force | Select -Last 1).DirectoryName
@@ -192,7 +322,7 @@ function LoadEXO
 
 function LoadSCC
 {
-	$CreateEXOPSSession = "C:\Users\martinr\AppData\Local\Apps\2.0\6BV44X0Q.DAH\A63B7BK7.HA6\micr..tion_5329ec537c0b4b5c_0010.0000_9fc624cd0073956e"
+	$CreateEXOPSSession = "C:\Users\martinr\AppData\Local\Apps\2.0\6BV44X0Q.DAH\A63B7BK7.HA6\micr..tion_1f16bd4ec4c2bb19_0010.0000_673f37c317fb5976"
     if (-not (Test-Path "$CreateEXOPSSession\CreateExoPSSession.ps1" -PathType Leaf))
     {
         $CreateEXOPSSession = (Get-ChildItem -Path $env:userprofile -Filter CreateExoPSSession.ps1 -Recurse -ErrorAction SilentlyContinue -Force | Select -Last 1).DirectoryName
@@ -201,7 +331,7 @@ function LoadSCC
     Connect-IPPSSession
 }
 
-function LoadB64Cert
+function Load-B64Cert
 {
     param(
     ## Text of an XML document.
@@ -224,6 +354,52 @@ function LoadB64Cert
 
 }
 
+function Cleanup-FiddlerCerts
+{
+    $certs=ls Cert:\CurrentUser\my |?{ `
+        $_.issuer -eq "CN=DO_NOT_TRUST_FiddlerRoot, O=DO_NOT_TRUST, OU=Created by http://www.fiddler2.com" `
+        -and `
+        $_.subject -ne "CN=DO_NOT_TRUST_FiddlerRoot, O=DO_NOT_TRUST, OU=Created by http://www.fiddler2.com"}
+
+    $certs | foreach {certutil -user -delstore my $_.Thumbprint | out-null}
+}
+
+function Get-UtcTime
+{
+    (get-date).ToUniversalTime().ToString("yyyy-MM-ddThh:mm:ssZ")
+}
+
+function Get-RemoteCertificate
+{
+param(
+		[Parameter(Mandatory=$true)][string]$computerName,
+		[Parameter(Mandatory=$true)][int]$port
+)
+    $tcpsocket = New-Object Net.Sockets.TcpClient($computerName, $port)
+    try
+    {
+     
+
+        $tcpstream = $tcpsocket.GetStream()
+        $sslStream = New-Object System.Net.Security.SslStream($tcpstream,$false,{param($sender, $certificate, $chain, $sslPolicyErrors)return $true})
+        $sslStream.AuthenticateAsClient($computerName,$null, [System.Security.Authentication.SslProtocols]::Tls12, $false);        
+        if ($sslStream.RemoteCertificate)
+        {
+            return New-Object system.security.cryptography.x509certificates.x509certificate2($sslStream.RemoteCertificate)
+        }else
+        {
+            throw "Error connecting"
+        } 
+    }catch
+    {
+        Write-Error $_.Exception.Message
+        Write-Error $_.Exception.InnerException.Message
+    }finally
+    {
+        $tcpsocket.Close();
+    }
+}
+
 
 # startup
 
@@ -237,4 +413,4 @@ if (Test-path $HistoryFilePath) { Import-Clixml $HistoryFilePath | Add-History }
 # use UTF8
 $PSDefaultParameterValues['*:Encoding'] = 'utf8'
 
-
+if (([int]$PSVersionTable.PSVersion.ToString()[0]) -gt 4){Set-PSReadlineKeyHandler -Key ctrl+d -Function ViExit}
