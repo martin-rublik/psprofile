@@ -1,14 +1,3 @@
-function LoadEXO
-{
-	$CreateEXOPSSession = "$($ENV:LOCALAPPDATA)\Apps\2.0\6BV44X0Q.DAH\A63B7BK7.HA6\micr..tion_5329ec537c0b4b5c_0010.0000_9fc624cd0073956e"
-    if (-not (Test-Path "$CreateEXOPSSession\CreateExoPSSession.ps1" -PathType Leaf))
-    {
-        $CreateEXOPSSession = (Get-ChildItem -Path $env:userprofile -Filter CreateExoPSSession.ps1 -Recurse -ErrorAction SilentlyContinue -Force | Select -Last 1).DirectoryName
-    }
-	. "$CreateEXOPSSession\CreateExoPSSession.ps1"
-    Connect-EXOPSSession
-}
-
 Function Format-Document
 {
     Param([int]$space=4)
