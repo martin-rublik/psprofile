@@ -3,53 +3,65 @@ $global:CLOUDTENANT=$null
 
 function checkLastCommand
 {
-    $lastCommand="$((h)[-1].CommandLine)"
-    if ($lastCommand.ToLower().StartsWith("connect-msolservice"))
+    try
     {
-        $previousTenant=$global:CLOUDTENANT
-		$global:CLOUDTENANT = (Get-MsolDomain -ErrorAction SilentlyContinue | where {$_.Name -match "^([a-z]|[0-9])+\.onmicrosoft\.com$"} | select -ExpandProperty Name).Replace(".onmicrosoft.com","")
-		if ($previousTenant -and $previousTenant -ne $global:CLOUDTENANT)
-		{
-			Write-Warning "Tenant change! Previous tenant was: $previousTenant, it is possible that you are connected to multiple tenants now!"
-		}
-    }
-    if ($lastCommand.ToLower().StartsWith("connect-azuread"))
+        $lastCommand="$((h)[-1].CommandLine)"
+
+        if ($lastCommand.ToLower().StartsWith("connect-msolservice"))
+        {
+            $previousTenant=$global:CLOUDTENANT
+		    $global:CLOUDTENANT = (Get-MsolDomain -ErrorAction SilentlyContinue | where {$_.Name -match "^([a-z]|[0-9])+\.onmicrosoft\.com$"} | select -ExpandProperty Name).Replace(".onmicrosoft.com","")
+		    if ($previousTenant -and $previousTenant -ne $global:CLOUDTENANT)
+		    {
+			    Write-Warning "Tenant change! Previous tenant was: $previousTenant, it is possible that you are connected to multiple tenants now!"
+		    }
+        }
+        if ($lastCommand.ToLower().StartsWith("connect-azuread"))
+        {
+            $previousTenant=$global:CLOUDTENANT
+		    $global:CLOUDTENANT = (Get-AzureADDomain -ErrorAction SilentlyContinue | where {$_.Name -match "^([a-z]|[0-9])+\.onmicrosoft\.com$"} | select -ExpandProperty Name).Replace(".onmicrosoft.com","")
+		    if ($previousTenant -and $previousTenant -ne $global:CLOUDTENANT)
+		    {
+			    Write-Warning "Tenant change! Previous tenant was: $previousTenant, it is possible that you are connected to multiple tenants now!"
+		    }
+        }
+        if ($lastCommand.ToLower().StartsWith("connect-aadrmservice")-or($lastCommand.ToLower().StartsWith("connect-aipservice")))
+        {
+            $previousTenant=$global:CLOUDTENANT
+		    $global:CLOUDTENANT = (Get-AadrmKeys |?{$_.Status -eq "Active"}).FriendlyName
+		    if ($previousTenant -and $previousTenant -ne $global:CLOUDTENANT)
+		    {
+			    Write-Warning "Tenant change! Previous tenant was: $previousTenant, it is possible that you are connected to multiple tenants now!"
+		    }
+        }
+        if ($lastCommand.ToLower().StartsWith("loadexo"))
+        {
+            $previousTenant=$global:CLOUDTENANT
+		    $global:CLOUDTENANT = (Get-OrganizationConfig -ErrorAction SilentlyContinue | select -ExpandProperty DisplayName)
+		    if ($previousTenant -and $previousTenant -ne $global:CLOUDTENANT)
+		    {
+			    Write-Warning "Tenant change! Previous tenant was: $previousTenant, it is possible that you are connected to multiple tenants now!"
+		    }
+        }
+
+# 
+# Since W1809 we have built-in history in %userprofile%\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadline\
+#
+#	    if (($HistoryFilePath) -and (-not ($host.Name -match "ISE"))) 
+#	    {
+#		    try
+#		    {
+#			    Get-History | Export-Clixml $HistoryFilePath
+#		    }catch
+#		    {
+#			    Write-Warning "Error writing the history $($_.Exception)"
+#		    }
+#	    }
+#
+    }catch
     {
-        $previousTenant=$global:CLOUDTENANT
-		$global:CLOUDTENANT = (Get-AzureADDomain -ErrorAction SilentlyContinue | where {$_.Name -match "^([a-z]|[0-9])+\.onmicrosoft\.com$"} | select -ExpandProperty Name).Replace(".onmicrosoft.com","")
-		if ($previousTenant -and $previousTenant -ne $global:CLOUDTENANT)
-		{
-			Write-Warning "Tenant change! Previous tenant was: $previousTenant, it is possible that you are connected to multiple tenants now!"
-		}
+        # just ignore that we were not able to search through history
     }
-    if ($lastCommand.ToLower().StartsWith("connect-aadrmservice")-or($lastCommand.ToLower().StartsWith("connect-aipservice")))
-    {
-        $previousTenant=$global:CLOUDTENANT
-		$global:CLOUDTENANT = (Get-AadrmKeys |?{$_.Status -eq "Active"}).FriendlyName
-		if ($previousTenant -and $previousTenant -ne $global:CLOUDTENANT)
-		{
-			Write-Warning "Tenant change! Previous tenant was: $previousTenant, it is possible that you are connected to multiple tenants now!"
-		}
-    }
-    if ($lastCommand.ToLower().StartsWith("loadexo"))
-    {
-        $previousTenant=$global:CLOUDTENANT
-		$global:CLOUDTENANT = (Get-OrganizationConfig -ErrorAction SilentlyContinue | select -ExpandProperty DisplayName)
-		if ($previousTenant -and $previousTenant -ne $global:CLOUDTENANT)
-		{
-			Write-Warning "Tenant change! Previous tenant was: $previousTenant, it is possible that you are connected to multiple tenants now!"
-		}
-    }
-	if ($HistoryFilePath)
-	{
-		try
-		{
-			Get-History | Export-Clixml $HistoryFilePath
-		}catch
-		{
-			Write-Warning "Error writing the history $($_.Exception)"
-		}
-	}
 }
 
 function Prompt 
@@ -400,12 +412,24 @@ param(
     }
 }
 
+function h
+{
+    history | select -ExpandProperty CommandLine    
+}
+
+function oh
+{
+    Get-Content "$($env:userprofile)\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadline\ConsoleHost_history.txt"
+}
 
 # startup
 
-$HistoryFilePath = Join-Path ([Environment]::GetFolderPath('UserProfile')) .ps_history
-#Register-EngineEvent PowerShell.Exiting -Action { Get-History | Export-Clixml $HistoryFilePath } | out-null
-if (Test-path $HistoryFilePath) { Import-Clixml $HistoryFilePath | Add-History }
+# Since Windows 1809 we have built in history
+#
+# $HistoryFilePath = Join-Path ([Environment]::GetFolderPath('UserProfile')) .ps_history
+# if (Test-path $HistoryFilePath) { Import-Clixml $HistoryFilePath | Add-History }
+#
+
 
 # use Tls12
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -413,4 +437,6 @@ if (Test-path $HistoryFilePath) { Import-Clixml $HistoryFilePath | Add-History }
 # use UTF8
 $PSDefaultParameterValues['*:Encoding'] = 'utf8'
 
-if (([int]$PSVersionTable.PSVersion.ToString()[0]) -gt 4){Set-PSReadlineKeyHandler -Key ctrl+d -Function ViExit}
+Remove-Item Alias:h
+Remove-Item Alias:oh -Force
+
