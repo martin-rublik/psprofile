@@ -385,19 +385,27 @@ function Get-RemoteCertificate
 {
 param(
 		[Parameter(Mandatory=$true)][string]$computerName,
-		[Parameter(Mandatory=$true)][int]$port
+		[int]$port=443,
+        [string]$OutFile
 )
     $tcpsocket = New-Object Net.Sockets.TcpClient($computerName, $port)
     try
     {
-     
-
         $tcpstream = $tcpsocket.GetStream()
         $sslStream = New-Object System.Net.Security.SslStream($tcpstream,$false,{param($sender, $certificate, $chain, $sslPolicyErrors)return $true})
         $sslStream.AuthenticateAsClient($computerName,$null, [System.Security.Authentication.SslProtocols]::Tls12, $false);        
         if ($sslStream.RemoteCertificate)
         {
-            return New-Object system.security.cryptography.x509certificates.x509certificate2($sslStream.RemoteCertificate)
+            $cert=New-Object system.security.cryptography.x509certificates.x509certificate2($sslStream.RemoteCertificate)
+            if ($OutFile)
+            {
+                $content = @(
+                '-----BEGIN CERTIFICATE-----'
+                [System.Convert]::ToBase64String($cert.RawData, 'InsertLineBreaks')
+                '-----END CERTIFICATE-----')
+                $content | Out-File -FilePath $OutFile -Encoding ascii
+            }
+            return $cert
         }else
         {
             throw "Error connecting"
