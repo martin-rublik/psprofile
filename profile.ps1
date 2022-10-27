@@ -67,17 +67,18 @@ function checkLastCommand
 function Prompt 
 {
     # check last command
-    checkLastCommand
+    # checkLastCommand
     # Print the current time:
+	$whoami=[regex]::Replace($(whoami),"^.+\\","")
     Write-Host ("[") -nonewline -foregroundcolor DarkGray
     Write-Host (Get-Date -format "yyyy-MM-dd HH:mm:ss") -nonewline -foregroundcolor Gray
     Write-Host ("][") -nonewline -foregroundcolor DarkGray
     If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]"Administrator"))
     {
-        Write-Host "$(whoami)@" -nonewline -foregroundcolor Gray
+        Write-Host "$whoami@" -nonewline -foregroundcolor Gray
     }else
     {
-        Write-Host "$($(whoami).ToString().ToUpper())" -nonewline -foregroundcolor Cyan
+        Write-Host "$($whoami.ToString().ToUpper())" -nonewline -foregroundcolor Cyan
         Write-Host "@" -nonewline -foregroundcolor Gray
     }
     Write-Host "$(hostname)" -nonewline -foregroundcolor Magenta
@@ -177,6 +178,17 @@ function Format-JWT
         return $result | ConvertTo-Json
     }
     $result
+}
+
+function Format-JSON
+{
+    param(
+    ## Text of an XML document.
+    [Parameter(ValueFromPipeline = $true)]
+    [string[]]$Text
+    )
+
+    $Text | ConvertFrom-Json | ConvertTo-Json -Depth 100    
 }
 
 function Base64-To-String
@@ -294,8 +306,6 @@ function SidString-To-ByteArray
     }
 }
 
-
-
 function Get-SHA1
 {
     param(
@@ -319,6 +329,65 @@ function StopWatch
 {
     $currdate = $(get-date);
     while($true){ Write-Progress $( $(get-date).Add(-$currdate)).ToString("HH:mm:ss.fff") -Activity "StopWatch"}
+}
+
+function LoadMSC
+{
+    param(
+    ## Text of an XML document
+    [Parameter(Mandatory)]
+    [ArgumentCompleter(
+            {
+                param($Command, $Parameter, $WordToComplete, $CommandAst, $FakeBoundParams)
+
+                $profiles=ls "~\*.o365json"
+
+                $result=$profiles | ?{$_.Name.StartsWith($WordToComplete,"CurrentCultureIgnoreCase")}
+                $result | select -ExpandProperty Name | %{$_.replace(".o365json","")}
+                
+            }
+        )]    [string]$TenantConfig
+    )
+    try
+    {
+        $config=Get-Content "~\$($TenantConfig).o365json" | ConvertFrom-Json
+
+        $TenantName=$config.TenantName
+        $Username=$config.Username
+
+        if ($config.UserPassword)
+        {
+            #
+			# to save the password use 
+			# $cred=Get-Credential
+			# $cred.Password | ConvertFrom-SecureString
+			#
+			$UserPassword=$config.UserPassword | ConvertTo-SecureString
+        }
+
+        $credential=New-Object System.Management.Automation.PSCredential ($Username)
+
+        if ($Username -and $UserPassword)
+        {
+            [pscredential]$credential = New-Object System.Management.Automation.PSCredential ($Username, $UserPassword)
+            Connect-MsolService -Credential $credential
+            Connect-SPOService -Url https://$TenantName-admin.sharepoint.com -Credential $credential
+            Connect-ExchangeOnline -Credential $credential -ShowProgress $true
+            Connect-IPPSSession -Credential $credential
+            Connect-AzureAD -Credential $credential    
+        }else
+        {
+            Connect-MsolService
+            #Connect-SPOService -Url https://$TenantName-admin.sharepoint.com
+            Connect-ExchangeOnline -UserPrincipalName $Username -ShowProgress $true
+            Connect-IPPSSession -UserPrincipalName $Username
+        }
+    
+        $global:CLOUDTENANT=$config.TenantDisplayName
+    }catch
+    {
+        throw $_.exception
+    }
 }
 
 function LoadEXO
@@ -373,12 +442,24 @@ function Cleanup-FiddlerCerts
         -and `
         $_.subject -ne "CN=DO_NOT_TRUST_FiddlerRoot, O=DO_NOT_TRUST, OU=Created by http://www.fiddler2.com"}
 
-    $certs | foreach {certutil -user -delstore my $_.Thumbprint | out-null}
+    $certs | Remove-Item -Confirm:$false
 }
 
 function Get-UtcTime
 {
     (get-date).ToUniversalTime().ToString("yyyy-MM-ddThh:mm:ssZ")
+}
+
+function arping
+{
+    param(
+    ## Text of an XML document.
+    [Parameter(ValueFromPipeline = $true)]
+    [string]$IPAddr
+    )
+    
+    ping -n 1 -w 500 $IPAddr | Out-Null
+    arp -a $IPAddr
 }
 
 function Get-RemoteCertificate
@@ -420,14 +501,49 @@ param(
     }
 }
 
-function h
-{
-    history | select -ExpandProperty CommandLine    
-}
 
-function oh
+function Get-EnumsFromAssembly
 {
-    Get-Content "$($env:userprofile)\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadline\ConsoleHost_history.txt"
+param(
+		[Parameter(Mandatory=$true)][string]$AssemblyPath
+)
+    try
+    {
+        $AssemblyFullPath=(ls $AssemblyPath).FullName
+        Add-Type -Path $AssemblyFullPath
+        $assembly=[System.Reflection.Assembly]::LoadFrom($AssemblyFullPath)
+
+        $assemblyEnumInfo=@()
+
+        $assembly.GetTypes() | ?{$_.BaseType -eq [System.Enum]} | foreach {
+            $enum=$_
+            $enumName = $enum.FullName
+            $enumValues=[System.Enum]::GetValues($enum)
+
+            $enumValuesObject=@()
+            foreach($enumValue in $enumValues)
+            {
+                $enumDescription=[string]$enumValue
+                $enumInt=[int]$enumValue
+
+                $enumObject = New-Object PSCustomObject       
+                $enumObject | Add-Member -NotePropertyName Description -NotePropertyValue $enumDescription
+                $enumObject | Add-Member -NotePropertyName IntValue -NotePropertyValue $enumInt
+
+                $enumValuesObject+=$enumObject
+            }
+
+            $result = new-object PSCustomObject 
+            $result | Add-Member -NotePropertyName "FullName" -NotePropertyValue $enumName 
+            $result | Add-Member -NotePropertyName "Values" -NotePropertyValue $enumValuesObject 
+            $assemblyEnumInfo+=$result
+        }
+
+        $assemblyEnumInfo 
+    }catch
+    {
+        throw $_.exception
+    }
 }
 
 # startup
@@ -445,6 +561,4 @@ function oh
 # use UTF8
 $PSDefaultParameterValues['*:Encoding'] = 'utf8'
 
-Remove-Item Alias:h
-Remove-Item Alias:oh -Force
 
